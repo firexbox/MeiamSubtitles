@@ -140,10 +140,13 @@ namespace Jellyfin.MeiamSub.Shooter
 
                 _logger.LogInformation(Name + " Search | FileHash -> " + hash + " (Took " + stopWatch.ElapsedMilliseconds + "ms)");
 
+                // 清理文件名：去除编码/画质标签，提高 Shooter API 匹配率
+                var cleanedPathInfo = CleanPathInfo(fileName);
+
                 var formData = new Dictionary<string, string>
                 {
                     { "filehash", hash},
-                    { "pathinfo", request.MediaPath},
+                    { "pathinfo", cleanedPathInfo},
                     { "format", "json"},
                     { "lang", language ==  "chi" ? "chn" : "eng"}
                 };
@@ -162,7 +165,10 @@ namespace Jellyfin.MeiamSub.Shooter
 
                 // 处理响应
 
-                if (response.IsSuccessStatusCode && response.Content.Headers.Any(m => m.Value.Contains("application/json; charset=utf-8")))
+                // 放宽 Content-Type 检查：Shooter API 有时返回 application/octet-stream 但内容是 JSON
+                var contentType = response.Content.Headers.ContentType?.MediaType ?? "";
+                var isJsonLike = contentType.Contains("json") || contentType.Contains("octet-stream");
+                if (response.IsSuccessStatusCode && isJsonLike)
 
                 {
 
@@ -447,6 +453,52 @@ namespace Jellyfin.MeiamSub.Shooter
             }
 
             return ret;
+        }
+
+        /// <summary>
+        /// 清理文件名，去除编码/画质标签，提高 Shooter API 匹配率。
+        /// 例如: "Focus 2015 2160p UHD Blu ray Remux HEVC DV DTS HD MA 7 1 W32.mkv" -> "Focus.2015.mkv"
+        /// </summary>
+        private static string CleanPathInfo(string fileName)
+        {
+            if (string.IsNullOrEmpty(fileName))
+                return fileName;
+
+            // 去除扩展名
+            var nameWithoutExt = Path.GetFileNameWithoutExtension(fileName);
+
+            // 尝试提取 "标题 年份" 部分
+            // 匹配模式: 任意文本 + 4位年份 (19xx 或 20xx)
+            var yearMatch = System.Text.RegularExpressions.Regex.Match(
+                nameWithoutExt, @"^(.+?)[\s.]((?:19|20)\d{2})\b");
+            if (yearMatch.Success)
+            {
+                // 用点连接标题和年份，Shooter API 偏爱此格式
+                var title = yearMatch.Groups[1].Value.Trim();
+                var year = yearMatch.Groups[2].Value;
+                return title + "." + year + ".mkv";
+            }
+
+            // 兜底：去除常见的编码/画质标签
+            var cleaned = System.Text.RegularExpressions.Regex.Replace(
+                nameWithoutExt,
+                @"\b(2160p|1080p|720p|480p|4K|UHD|HD|SD|Blu[-\s]?ray|Remux|REMUX|" +
+                @"HEVC|H\.?265|H\.?264|x264|x265|AVC|AV1|" +
+                @"DV|HDR10\+?|HDR|Dolby[\s-]Vision|" +
+                @"DTS[\s-]HD[\s-]?MA|DTS|TrueHD|Atmos|DD\+?|AC3|AAC|MP3|" +
+                @"WEB[\s-]?(DL|Rip)|BRRip|BDRip|HDTV|" +
+                @"\b(7|5|2|9)\.\d\b|W\d{2})\b",
+                "",
+                System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+
+            // 清理多余的空格和点
+            cleaned = System.Text.RegularExpressions.Regex.Replace(cleaned, @"[\s.]+", ".");
+            cleaned = cleaned.Trim('.');
+
+            if (string.IsNullOrWhiteSpace(cleaned))
+                return nameWithoutExt + ".mkv";
+
+            return cleaned + ".mkv";
         }
 
         #endregion
