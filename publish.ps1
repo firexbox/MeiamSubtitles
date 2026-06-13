@@ -113,9 +113,36 @@ $JellyfinZip = "Release\Jellyfin_v$Version.zip"
 if (Test-Path $EmbyZip) { Remove-Item -Force $EmbyZip }
 if (Test-Path $JellyfinZip) { Remove-Item -Force $JellyfinZip }
 
+# Helper: normalize zip entries to use forward slashes (cross-platform compatibility)
+function Fix-ZipPaths {
+    param([string]$ZipPath)
+    Add-Type -AssemblyName System.IO.Compression.FileSystem
+    $tempZip = "$ZipPath.tmp"
+    $src = [System.IO.Compression.ZipFile]::OpenRead($ZipPath)
+    $dst = [System.IO.Compression.ZipFile]::Open($tempZip, 'Create')
+    try {
+        foreach ($entry in $src.Entries) {
+            $fixedName = $entry.FullName -replace '\\', '/'
+            $newEntry = $dst.CreateEntry($fixedName)
+            $in = $entry.Open()
+            $out = $newEntry.Open()
+            try { $in.CopyTo($out) } finally { $out.Close(); $in.Close() }
+        }
+    } finally {
+        $src.Dispose()
+        $dst.Dispose()
+    }
+    Move-Item -Force $tempZip $ZipPath
+    Write-Host "  Normalized zip paths (backslash -> forward slash): $ZipPath" -ForegroundColor Gray
+}
+
 # Compress
 Compress-Archive -Path "$EmbyPackDir\*" -DestinationPath $EmbyZip -Force
 Compress-Archive -Path "$TempDir\Jellyfin\*" -DestinationPath $JellyfinZip -Force
+
+# Fix Windows backslash paths in zip archives
+Fix-ZipPaths -ZipPath $EmbyZip
+Fix-ZipPaths -ZipPath $JellyfinZip
 
 # Cleanup temp
 Remove-Item -Recurse -Force $TempDir
