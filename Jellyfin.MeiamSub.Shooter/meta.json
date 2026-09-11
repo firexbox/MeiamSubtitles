@@ -4,7 +4,7 @@
   "guid": "038D37A2-7A1E-4C01-9B6D-AA215D29AB4C",
   "name": "MeiamSub.Shooter",
   "owner": "Meiam",
-  "targetAbi": "10.11.0.0",
+  "targetAbi": "12.0.0.0",
   "timestamp": "2026-08-07T07:09:27.0000000Z",
   "version": "1.0.16.0",
   "status": "Deprecated",
